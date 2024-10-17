@@ -1,0 +1,5 @@
+#!/Users/a/Downloads/DataScience_World/LLM_project/atsLLMapp2/atsLLMapp2_env/bin/python3.12
+
+from idlelib.pyshell import main
+if __name__ == '__main__':
+    main()
