@@ -1,18 +1,23 @@
-# Austin's Smart ATS
+# Smart ATS Backend API
 
-Austin's Smart ATS is a Streamlit web application designed to evaluate resumes against job descriptions using Google Generative AI. The tool mimics the functionality of an ATS (Application Tracking System) and provides insights into how well a resume matches a job description by analyzing keywords and profile summaries, with recommendations for improvements.
+Smart ATS Backend is a Flask-based REST API designed to evaluate resumes against job descriptions using Google Generative AI. The API provides endpoints for analyzing resumes and returning structured data about job matching, missing keywords, and profile summaries.
 
 ## Features
-- **Upload Resume:** Upload a PDF resume for analysis.
-- **Job Description Matching:** Paste the job description to evaluate how well the resume aligns with the role.
-- **Keyword Matching:** The system identifies missing keywords crucial for optimizing the resume for ATS.
-- **Profile Summary:** Summarizes the key strengths of the resume and areas for improvement based on the job description.
+- **REST API Endpoints:** RESTful API for resume analysis
+- **PDF Processing:** Extract text from PDF resumes
+- **AI-Powered Analysis:** Uses Google Gemini AI for intelligent matching
+- **Job Description Matching:** Analyzes alignment between resume and job requirements
+- **Keyword Analysis:** Identifies missing keywords for ATS optimization
+- **Profile Summary:** Generates comprehensive resume summaries
+- **CORS Support:** Cross-origin requests enabled for frontend integration
 
 ## Technologies Used
-- **Streamlit**: For creating the web application interface.
-- **Google Generative AI**: Powering the intelligent analysis of resumes and job descriptions.
-- **PyPDF2**: Extracts text from PDF resumes for analysis.
-- **python-dotenv**: Loads environment variables for API key management.
+- **Flask**: Web framework for creating REST API
+- **Flask-CORS**: Cross-origin resource sharing support
+- **Google Generative AI**: AI-powered resume analysis
+- **PyPDF2**: PDF text extraction
+- **python-dotenv**: Environment variable management
+- **Gunicorn**: WSGI HTTP server for deployment
 
 ## Installation
 
@@ -52,20 +57,49 @@ GOOGLE_API_KEY=your_google_api_key
 ```
 
 ### Run the Application
-To launch the Streamlit app, run the following command:
+To launch the Flask API, run:
 
 ```bash
-streamlit run app.py
+python app.py
 ```
+
+The API will be available at `http://localhost:5000`
+
+## API Endpoints
+
+### Health Check
+- **GET** `/`
+- **Response:**
+  ```json
+  {
+    "status": "healthy",
+    "message": "Smart ATS API is running",
+    "version": "1.0.0"
+  }
+  ```
+
+### Analyze Resume
+- **POST** `/analyze`
+- **Content-Type:** `multipart/form-data`
+- **Form Data:**
+  - `job_description`: Job description text (required)
+  - `resume`: PDF file (required)
+- **Response:**
+  ```json
+  {
+    "jd_match": "85%",
+    "missing_keywords": ["python", "docker", "kubernetes"],
+    "profile_summary": "Experienced software developer with strong background in web development..."
+  }
+  ```
 
 ## Usage
 
-1. **Job Description**: Paste the job description into the provided text area.
-2. **Upload Resume**: Upload your resume in PDF format.
-3. **Analyze**: Click the "Submit" button to get a detailed analysis. The app will generate:
-   - A percentage match between the resume and job description.
-   - A list of missing keywords.
-   - A profile summary with insights into strengths and areas for improvement.
+Send a POST request to `/analyze` with:
+1. **job_description**: The job posting text
+2. **resume**: PDF file of the candidate's resume
+
+The API will return structured analysis data including match percentage, missing keywords, and profile summary.
 
 ## Example
 
