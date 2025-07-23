@@ -14,10 +14,10 @@ Smart ATS Backend is a Flask-based REST API designed to evaluate resumes against
 ## Technologies Used
 - **Flask**: Web framework for creating REST API
 - **Flask-CORS**: Cross-origin resource sharing support
-- **Google Generative AI**: AI-powered resume analysis
-- **PyPDF2**: PDF text extraction
+- **Google Generative AI (Gemini 2.0)**: Latest AI model for intelligent resume analysis
+- **PyPDF2**: PDF text extraction and processing
 - **python-dotenv**: Environment variable management
-- **Gunicorn**: WSGI HTTP server for deployment
+- **Gunicorn**: WSGI HTTP server for production deployment
 
 ## Installation
 
@@ -57,13 +57,23 @@ GOOGLE_API_KEY=your_google_api_key
 ```
 
 ### Run the Application
-To launch the Flask API, run:
 
+#### Option 1: Using the startup script (Recommended)
+```bash
+python start_server.py
+```
+
+#### Option 2: Direct execution
 ```bash
 python app.py
 ```
 
 The API will be available at `http://localhost:5000`
+
+#### Testing the API
+```bash
+python test_api.py
+```
 
 ## API Endpoints
 

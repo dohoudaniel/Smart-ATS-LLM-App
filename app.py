@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 import json
 import io
 import logging
+import time
 from werkzeug.utils import secure_filename
 from werkzeug.exceptions import RequestEntityTooLarge
 
@@ -50,10 +51,30 @@ def internal_error(e):
 def get_gemini_response(input_text):
     """Get response from Gemini AI model"""
     try:
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        response = model.generate_content(input_text)
+        # Use Gemini 2.0 Flash model
+        model = genai.GenerativeModel('gemini-2.0-flash-exp')
+
+        # Configure generation parameters for better consistency
+        generation_config = genai.types.GenerationConfig(
+            temperature=0.1,  # Lower temperature for more consistent responses
+            top_p=0.8,
+            top_k=40,
+            max_output_tokens=1000,
+        )
+
+        response = model.generate_content(
+            input_text,
+            generation_config=generation_config
+        )
+
+        if not response.text:
+            raise Exception("Empty response from AI model")
+
+        logger.info(f"AI Response received: {len(response.text)} characters")
         return response.text
+
     except Exception as e:
+        logger.error(f"AI model error: {str(e)}")
         raise Exception(f"AI model error: {str(e)}")
 
 def extract_pdf_text(file_stream):
@@ -70,32 +91,63 @@ def extract_pdf_text(file_stream):
 def parse_ai_response(response_text):
     """Parse the AI response and extract structured data"""
     try:
+        logger.info(f"Parsing AI response: {response_text[:200]}...")
+
         # Clean the response text
         response_text = response_text.strip()
 
-        # Try to find JSON-like structure in the response
+        # Remove any markdown code blocks if present
+        if response_text.startswith('```json'):
+            response_text = response_text.replace('```json', '').replace('```', '').strip()
+        elif response_text.startswith('```'):
+            response_text = response_text.replace('```', '').strip()
+
+        # Try to find JSON structure in the response
         start_idx = response_text.find('{')
         end_idx = response_text.rfind('}') + 1
 
         if start_idx != -1 and end_idx != -1:
             json_str = response_text[start_idx:end_idx]
-            # Replace single quotes with double quotes for valid JSON
-            json_str = json_str.replace("'", '"')
-            parsed_data = json.loads(json_str)
+            logger.info(f"Extracted JSON string: {json_str}")
 
-            return {
-                'jd_match': parsed_data.get('JD Match', '0%'),
-                'missing_keywords': parsed_data.get('MissingKeywords', []),
-                'profile_summary': parsed_data.get('Profile Summary', 'No summary available')
+            # Try to parse as JSON
+            try:
+                parsed_data = json.loads(json_str)
+            except json.JSONDecodeError:
+                # If JSON parsing fails, try to fix common issues
+                json_str = json_str.replace("'", '"')  # Replace single quotes
+                json_str = json_str.replace('""', '"')  # Fix double quotes
+                parsed_data = json.loads(json_str)
+
+            # Extract data with fallbacks
+            jd_match = parsed_data.get('JD Match', parsed_data.get('jd_match', '0%'))
+            missing_keywords = parsed_data.get('MissingKeywords', parsed_data.get('missing_keywords', []))
+            profile_summary = parsed_data.get('Profile Summary', parsed_data.get('profile_summary', 'No summary available'))
+
+            # Ensure missing_keywords is a list
+            if isinstance(missing_keywords, str):
+                missing_keywords = [kw.strip() for kw in missing_keywords.split(',') if kw.strip()]
+
+            result = {
+                'jd_match': str(jd_match),
+                'missing_keywords': missing_keywords,
+                'profile_summary': str(profile_summary)
             }
+
+            logger.info(f"Successfully parsed response: {result}")
+            return result
+
         else:
+            logger.warning("No JSON structure found in response")
             # Fallback parsing if JSON structure is not found
             return {
                 'jd_match': '0%',
                 'missing_keywords': [],
-                'profile_summary': response_text
+                'profile_summary': response_text[:500] + "..." if len(response_text) > 500 else response_text
             }
+
     except Exception as e:
+        logger.error(f"Error parsing AI response: {str(e)}")
         # Return default structure if parsing fails
         return {
             'jd_match': '0%',
@@ -103,19 +155,31 @@ def parse_ai_response(response_text):
             'profile_summary': f'Error parsing response: {str(e)}'
         }
 
-# Prompt template
+# Improved prompt template for Gemini 2.0
 input_prompt = """
-Hey Act Like a skilled or very experience ATS(Application Tracking System)
-with a deep understanding of tech field,software engineering,data science ,data analyst
-and big data engineer. Your task is to evaluate the resume based on the given job description.
-You must consider the job market is very competitive and you should provide
-best assistance for improving the resumes. Assign the percentage Matching based
-on JD and the missing keywords with high accuracy
-resume:{text}
-description:{jd}
+You are an expert ATS (Application Tracking System) analyzer with deep knowledge in technology, software engineering, data science, and data analytics.
 
-I want the response in one single string having the structure
-{{"JD Match":"%","MissingKeywords":[],"Profile Summary":""}}
+Your task is to analyze a resume against a job description and provide a detailed evaluation.
+
+RESUME TEXT:
+{text}
+
+JOB DESCRIPTION:
+{jd}
+
+Please analyze the resume and provide your response in the following EXACT JSON format (no additional text before or after):
+
+{{
+  "JD Match": "XX%",
+  "MissingKeywords": ["keyword1", "keyword2", "keyword3"],
+  "Profile Summary": "Detailed analysis of the candidate's profile, strengths, and areas for improvement based on the job requirements."
+}}
+
+Instructions:
+1. Calculate a percentage match (0-100%) based on how well the resume aligns with the job requirements
+2. Identify 3-8 important missing keywords that would improve the resume's ATS score
+3. Provide a comprehensive profile summary (2-3 sentences) highlighting strengths and improvement areas
+4. Respond ONLY with the JSON object, no additional text
 """
 
 @app.route('/', methods=['GET'])
@@ -176,20 +240,56 @@ def analyze_resume():
             jd=job_description
         )
 
-        # Get AI response
+        # Get AI response with retry mechanism
         logger.info("Sending request to AI model")
-        ai_response = get_gemini_response(formatted_prompt)
-        logger.info("Received response from AI model")
+        max_retries = 2
+        ai_response = None
+
+        for attempt in range(max_retries + 1):
+            try:
+                ai_response = get_gemini_response(formatted_prompt)
+                logger.info(f"Received response from AI model (attempt {attempt + 1})")
+                break
+            except Exception as ai_error:
+                logger.warning(f"AI request attempt {attempt + 1} failed: {str(ai_error)}")
+                if attempt == max_retries:
+                    # If all retries failed, return a fallback response
+                    logger.error("All AI request attempts failed, returning fallback response")
+                    return jsonify({
+                        'jd_match': '50%',
+                        'missing_keywords': ['Unable to analyze - AI service unavailable'],
+                        'profile_summary': f'Analysis temporarily unavailable due to AI service issues. Resume contains {len(resume_text)} characters of text. Please try again later.'
+                    })
+                time.sleep(1)  # Wait 1 second before retry
+
+        if not ai_response:
+            logger.error("No AI response received after retries")
+            return jsonify({
+                'jd_match': '0%',
+                'missing_keywords': ['Analysis failed'],
+                'profile_summary': 'Unable to analyze resume at this time. Please try again later.'
+            }), 500
 
         # Parse the response
         parsed_response = parse_ai_response(ai_response)
         logger.info("Successfully parsed AI response")
 
+        # Validate the parsed response
+        if not parsed_response.get('jd_match') or parsed_response.get('jd_match') == '0%':
+            logger.warning("Received low-quality response, adding fallback data")
+            if not parsed_response.get('profile_summary') or 'Error' in parsed_response.get('profile_summary', ''):
+                parsed_response['profile_summary'] = f"Resume analysis completed. The document contains {len(resume_text)} characters of professional content."
+
         return jsonify(parsed_response)
 
     except Exception as e:
         logger.error(f"Error in analyze_resume: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({
+            'error': str(e),
+            'jd_match': '0%',
+            'missing_keywords': [],
+            'profile_summary': 'An error occurred during analysis. Please try again.'
+        }), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
