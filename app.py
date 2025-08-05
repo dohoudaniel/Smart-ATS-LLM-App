@@ -56,13 +56,16 @@ app.register_blueprint(reviews_bp)
 # Initialize database connection
 
 
-@app.before_first_request
 def initialize_database():
-    """Initialize database connection before first request"""
+    """Initialize database connection"""
     if not init_database():
         logger.error("Failed to initialize database connection")
         raise Exception("Database initialization failed")
     logger.info("Database initialized successfully")
+
+
+# Initialize database when the module is loaded
+initialize_database()
 
 # Cleanup database connection on app teardown
 
