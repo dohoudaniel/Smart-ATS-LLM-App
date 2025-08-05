@@ -1,27 +1,55 @@
-# Smart ATS Backend API
+# Smart ATS - Backend API
 
-Smart ATS Backend is a Flask-based REST API designed to evaluate resumes against job descriptions using Google Generative AI. The API provides endpoints for analyzing resumes and returning structured data about job matching, missing keywords, and profile summaries.
+A comprehensive Flask-based backend API for the Smart ATS resume analysis application. This backend provides AI-powered resume analysis, user authentication, and review management with MongoDB integration.
 
-## Features
-- **REST API Endpoints:** RESTful API for resume analysis
-- **PDF Processing:** Extract text from PDF resumes
-- **AI-Powered Analysis:** Uses Google Gemini AI for intelligent matching
-- **Job Description Matching:** Analyzes alignment between resume and job requirements
-- **Keyword Analysis:** Identifies missing keywords for ATS optimization
-- **Profile Summary:** Generates comprehensive resume summaries
-- **CORS Support:** Cross-origin requests enabled for frontend integration
+## 🚀 Features
 
-## Technologies Used
-- **Flask**: Web framework for creating REST API
-- **Flask-CORS**: Cross-origin resource sharing support
-- **Google Generative AI (Gemini 2.0)**: Latest AI model for intelligent resume analysis
-- **PyPDF2**: PDF text extraction and processing
-- **python-dotenv**: Environment variable management
-- **Gunicorn**: WSGI HTTP server for production deployment
+### Core Functionality
+
+- **AI-Powered Resume Analysis**: Uses Google Gemini 2.0 Flash for intelligent resume evaluation
+- **PDF Processing**: Extracts text from PDF resumes for analysis
+- **Job Matching**: Compares resumes against job descriptions with percentage matching
+- **Keyword Analysis**: Identifies missing keywords to improve ATS compatibility
+
+### Authentication & User Management
+
+- **JWT Authentication**: Secure token-based authentication system
+- **User Registration**: Complete signup flow with validation
+- **User Login**: Secure authentication with password hashing
+- **Profile Management**: Update user information and settings
+- **Password Security**: Bcrypt hashing for secure password storage
+
+### Review Management
+
+- **Review Storage**: Save analysis results to MongoDB
+- **Review History**: Track user's previous resume analyses
+- **Statistics**: Generate user statistics and performance metrics
+- **Search & Filter**: Search through review history
+- **Data Export**: Export user data and analysis history
+
+### Database Integration
+
+- **MongoDB**: Robust NoSQL database for scalable data storage
+- **User Collections**: Structured user data with profiles
+- **Review Collections**: Comprehensive analysis result storage
+- **Indexing**: Optimized database queries with proper indexing
+
+## 🛠️ Tech Stack
+
+- **Framework**: Flask 3.0.0
+- **Database**: MongoDB with PyMongo
+- **Authentication**: Flask-JWT-Extended
+- **AI Service**: Google Generative AI (Gemini 2.0)
+- **PDF Processing**: PyPDF2
+- **Password Hashing**: Bcrypt
+- **Validation**: Email-validator, Marshmallow
+- **CORS**: Flask-CORS
+- **Environment**: Python-dotenv
 
 ## Installation
 
 ### Prerequisites
+
 Ensure you have Python installed on your machine. Then, clone the repository and install the necessary dependencies.
 
 1. Clone the repository:
@@ -50,6 +78,7 @@ Ensure you have Python installed on your machine. Then, clone the repository and
    ```
 
 ### Environment Setup
+
 Create a `.env` file in the project root directory and add your Google API key:
 
 ```bash
@@ -59,11 +88,13 @@ GOOGLE_API_KEY=your_google_api_key
 ### Run the Application
 
 #### Option 1: Using the startup script (Recommended)
+
 ```bash
 python start_server.py
 ```
 
 #### Option 2: Direct execution
+
 ```bash
 python app.py
 ```
@@ -71,6 +102,7 @@ python app.py
 The API will be available at `http://localhost:5000`
 
 #### Testing the API
+
 ```bash
 python test_api.py
 ```
@@ -78,6 +110,7 @@ python test_api.py
 ## API Endpoints
 
 ### Health Check
+
 - **GET** `/`
 - **Response:**
   ```json
@@ -89,6 +122,7 @@ python test_api.py
   ```
 
 ### Analyze Resume
+
 - **POST** `/analyze`
 - **Content-Type:** `multipart/form-data`
 - **Form Data:**
@@ -106,6 +140,7 @@ python test_api.py
 ## Usage
 
 Send a POST request to `/analyze` with:
+
 1. **job_description**: The job posting text
 2. **resume**: PDF file of the candidate's resume
 
@@ -130,5 +165,5 @@ Here’s an example of how the app generates responses:
 - **`.env`**: Stores sensitive environment variables, such as API keys (not included in the repository for security reasons).
 
 ## Acknowledgements
-Special thanks to the open-source libraries and tools that made this project possible: Streamlit, Google Generative AI, PyPDF2, and Python Dotenv.
 
+Special thanks to the open-source libraries and tools that made this project possible: Streamlit, Google Generative AI, PyPDF2, and Python Dotenv.

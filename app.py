@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from flask_jwt_extended import JWTManager, jwt_required, get_jwt_identity
 import google.generativeai as genai
 import os
 import PyPDF2 as pdf
@@ -8,8 +9,15 @@ import json
 import io
 import logging
 import time
+from datetime import timedelta
 from werkzeug.utils import secure_filename
 from werkzeug.exceptions import RequestEntityTooLarge
+
+# Import our custom modules
+from config.database import init_database, close_database, get_database
+from routes.auth import auth_bp
+from routes.reviews import reviews_bp
+from models.review import Review
 
 # Load environment variables
 load_dotenv()
@@ -20,33 +28,70 @@ genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 # Initialize Flask app
 app = Flask(__name__)
 
+# Configure Flask
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+app.config['JWT_SECRET_KEY'] = os.getenv(
+    'JWT_SECRET_KEY', 'your-secret-key-change-in-production')
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=24)
+app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(days=30)
+
+# Initialize JWT
+jwt = JWTManager(app)
+
 # Configure CORS with specific settings
 CORS(app,
      origins=['*'],  # Allow all origins for now, restrict in production
-     methods=['GET', 'POST', 'OPTIONS'],
+     methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
      allow_headers=['Content-Type', 'Authorization'],
      supports_credentials=False)
-
-# Configure Flask
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Register blueprints
+app.register_blueprint(auth_bp)
+app.register_blueprint(reviews_bp)
+
+# Initialize database connection
+
+
+@app.before_first_request
+def initialize_database():
+    """Initialize database connection before first request"""
+    if not init_database():
+        logger.error("Failed to initialize database connection")
+        raise Exception("Database initialization failed")
+    logger.info("Database initialized successfully")
+
+# Cleanup database connection on app teardown
+
+
+@app.teardown_appcontext
+def close_db(error):
+    """Close database connection on app teardown"""
+    if error:
+        logger.error(f"App context teardown with error: {error}")
+    # Database connections are managed by the connection pool
+
 # Error handlers
+
+
 @app.errorhandler(413)
 def too_large(e):
     return jsonify({'error': 'File too large. Maximum size is 16MB.'}), 413
+
 
 @app.errorhandler(400)
 def bad_request(e):
     return jsonify({'error': 'Bad request. Please check your input.'}), 400
 
+
 @app.errorhandler(500)
 def internal_error(e):
     logger.error(f"Internal server error: {str(e)}")
     return jsonify({'error': 'Internal server error. Please try again later.'}), 500
+
 
 def get_gemini_response(input_text):
     """Get response from Gemini AI model"""
@@ -77,6 +122,7 @@ def get_gemini_response(input_text):
         logger.error(f"AI model error: {str(e)}")
         raise Exception(f"AI model error: {str(e)}")
 
+
 def extract_pdf_text(file_stream):
     """Extract text from PDF file"""
     try:
@@ -88,6 +134,7 @@ def extract_pdf_text(file_stream):
     except Exception as e:
         raise Exception(f"PDF processing error: {str(e)}")
 
+
 def parse_ai_response(response_text):
     """Parse the AI response and extract structured data"""
     try:
@@ -98,7 +145,8 @@ def parse_ai_response(response_text):
 
         # Remove any markdown code blocks if present
         if response_text.startswith('```json'):
-            response_text = response_text.replace('```json', '').replace('```', '').strip()
+            response_text = response_text.replace(
+                '```json', '').replace('```', '').strip()
         elif response_text.startswith('```'):
             response_text = response_text.replace('```', '').strip()
 
@@ -120,13 +168,17 @@ def parse_ai_response(response_text):
                 parsed_data = json.loads(json_str)
 
             # Extract data with fallbacks
-            jd_match = parsed_data.get('JD Match', parsed_data.get('jd_match', '0%'))
-            missing_keywords = parsed_data.get('MissingKeywords', parsed_data.get('missing_keywords', []))
-            profile_summary = parsed_data.get('Profile Summary', parsed_data.get('profile_summary', 'No summary available'))
+            jd_match = parsed_data.get(
+                'JD Match', parsed_data.get('jd_match', '0%'))
+            missing_keywords = parsed_data.get(
+                'MissingKeywords', parsed_data.get('missing_keywords', []))
+            profile_summary = parsed_data.get('Profile Summary', parsed_data.get(
+                'profile_summary', 'No summary available'))
 
             # Ensure missing_keywords is a list
             if isinstance(missing_keywords, str):
-                missing_keywords = [kw.strip() for kw in missing_keywords.split(',') if kw.strip()]
+                missing_keywords = [
+                    kw.strip() for kw in missing_keywords.split(',') if kw.strip()]
 
             result = {
                 'jd_match': str(jd_match),
@@ -155,6 +207,7 @@ def parse_ai_response(response_text):
             'profile_summary': f'Error parsing response: {str(e)}'
         }
 
+
 # Improved prompt template for Gemini 2.0
 input_prompt = """
 You are an expert ATS (Application Tracking System) analyzer with deep knowledge in technology, software engineering, data science, and data analytics.
@@ -182,6 +235,7 @@ Instructions:
 4. Respond ONLY with the JSON object, no additional text
 """
 
+
 @app.route('/', methods=['GET'])
 def health_check():
     """Health check endpoint"""
@@ -191,11 +245,16 @@ def health_check():
         'version': '1.0.0'
     })
 
+
 @app.route('/analyze', methods=['POST'])
+@jwt_required(optional=True)
 def analyze_resume():
     """Analyze resume against job description"""
     try:
-        logger.info("Received resume analysis request")
+        # Get user ID if authenticated
+        user_id = get_jwt_identity()
+        logger.info(
+            f"Received resume analysis request from user: {user_id or 'anonymous'}")
 
         # Check if required fields are present
         if 'job_description' not in request.form:
@@ -248,13 +307,16 @@ def analyze_resume():
         for attempt in range(max_retries + 1):
             try:
                 ai_response = get_gemini_response(formatted_prompt)
-                logger.info(f"Received response from AI model (attempt {attempt + 1})")
+                logger.info(
+                    f"Received response from AI model (attempt {attempt + 1})")
                 break
             except Exception as ai_error:
-                logger.warning(f"AI request attempt {attempt + 1} failed: {str(ai_error)}")
+                logger.warning(
+                    f"AI request attempt {attempt + 1} failed: {str(ai_error)}")
                 if attempt == max_retries:
                     # If all retries failed, return a fallback response
-                    logger.error("All AI request attempts failed, returning fallback response")
+                    logger.error(
+                        "All AI request attempts failed, returning fallback response")
                     return jsonify({
                         'jd_match': '50%',
                         'missing_keywords': ['Unable to analyze - AI service unavailable'],
@@ -276,9 +338,46 @@ def analyze_resume():
 
         # Validate the parsed response
         if not parsed_response.get('jd_match') or parsed_response.get('jd_match') == '0%':
-            logger.warning("Received low-quality response, adding fallback data")
+            logger.warning(
+                "Received low-quality response, adding fallback data")
             if not parsed_response.get('profile_summary') or 'Error' in parsed_response.get('profile_summary', ''):
-                parsed_response['profile_summary'] = f"Resume analysis completed. The document contains {len(resume_text)} characters of professional content."
+                parsed_response[
+                    'profile_summary'] = f"Resume analysis completed. The document contains {len(resume_text)} characters of professional content."
+
+        # Save review if user is authenticated
+        if user_id:
+            try:
+                # Get job title from form data
+                job_title = request.form.get('job_title', 'Untitled Position')
+
+                # Extract match score as integer
+                match_score_str = parsed_response.get('jd_match', '0%')
+                match_score = int(match_score_str.replace('%', ''))
+
+                # Create review model instance
+                review_model = Review(get_database().get_reviews_collection())
+
+                # Save review
+                review_data = {
+                    'userId': user_id,
+                    'jobTitle': job_title,
+                    'jobDescription': job_description,
+                    'resumeFileName': secure_filename(resume_file.filename),
+                    'matchScore': match_score,
+                    'missingKeywords': parsed_response.get('missing_keywords', []),
+                    'profileSummary': parsed_response.get('profile_summary', ''),
+                }
+
+                saved_review = review_model.create_review(review_data)
+                logger.info(
+                    f"Review saved for user {user_id}: {saved_review['id']}")
+
+                # Add review ID to response
+                parsed_response['reviewId'] = saved_review['id']
+
+            except Exception as save_error:
+                logger.warning(f"Failed to save review: {str(save_error)}")
+                # Don't fail the entire request if saving fails
 
         return jsonify(parsed_response)
 
@@ -290,6 +389,7 @@ def analyze_resume():
             'missing_keywords': [],
             'profile_summary': 'An error occurred during analysis. Please try again.'
         }), 500
+
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
